@@ -1,0 +1,143 @@
+name : DANKTEST-0
+iocfg:
+  datadir : /home/k64t/person-search/datasets
+  logdir   : /home/k64t/person-search/logs
+  savedir   : /home/k64t/person-search/saves
+
+
+text_encoder:
+  architectures: ["BertForMaskedLM"]
+  attention_probs_dropout_prob: 0.1
+  hidden_act: "gelu"
+  hidden_dropout_prob: 0.1
+  hidden_size: 768
+  initializer_range: 0.02
+  intermediate_size: 3072
+  layer_norm_eps: 1e-12
+  max_position_embeddings: 512
+  model_type: "bert"
+  num_attention_heads: 12
+  num_hidden_layers: 12
+  pad_token_id: 0
+  type_vocab_size: 2
+  vocab_size: 49408 #adjust
+  fusion_layer: 6
+  encoder_width: 1024
+
+image_encoder:
+  name: "ViT-B/16"
+  vision_width: 1024
+  image_res: 384
+  img_size: [384, 128]
+  stride_size: 16
+  temperature: 0.02
+
+cross_modal:
+  cmt_depth: 4 #cross modal transformer self attn layers
+  masked_token_rate: 0.8 #masked token rate for mlm task
+  masked_token_unchanged_rate: 0.1  #masked token unchanged rate
+  lr_factor: 5.0 # lr factor for random init self implement module
+
+resume: False
+resume_ckpt_file : /home/k64t/person-search/DAProject/saves/ViT-B-16.pt
+training: True
+trainer:
+  num_epoch: 60
+  scheduler:
+    milestones: [20, 50]
+    gamma:  0.1
+    warmup_factor: 0.1
+    warmup_epochs: 5
+    warmup_method: linear
+    lrscheduler: cosine
+    target_lr: 0
+    power: 0.9
+  optimizer:
+    opt: Adam
+    lr: 1e-5
+    bias_lr_factor: 2.
+    momentum: 0.9
+    weight_decay: 4e-5
+    weight_decay_bias: 0.0
+    alpha: 0.9
+    beta : 0.999
+    lr_mult: 2
+  num_workers: 4 
+  MLM: True
+  log_period: 50 #step
+  eval_period: 1 #epoch
+
+dataloader:
+  batch_size: 4 #128
+  test_batch_size: 128 #512
+  text_length: 77
+  dataset_name: "CUHK-PEDES-M"
+  sampler: random #choose from [identity, random]
+  # sampler: identity
+  val_dataset: test
+  num_instance: 4
+
+  transform:
+    mean: [0.48145466, 0.4578275, 0.40821073]
+    std : [0.26862954, 0.26130258, 0.27577711]
+
+ema:
+  enable : True
+  distillation: True 
+  enhance_mmm:
+    enable: True 
+    ratio : 0.5
+  momentum_alpha: 0.99
+  intra_distil_loss_weight : 0.5
+  inter_distil_loss_weight : 0.5
+
+
+losses:
+  loss_names : ['id', 'mim']
+  # loss_names : ['id', 'mlm', 'sdm', 'cmpm',  'itc', 'mim', 'kntriplet', 'citc' ]
+  # loss_names : ['id', 'mlm', 'sdm', 'cmpm',  'itc', 'mim', 'kntriplet', 'citc', 'ritc' ]
+  mlm_loss_weight: 1.0
+  mim_loss_weight: 1.0
+  id_loss_weight: 1.0
+  kntriplet_loss_weight: 1.0
+  citc_loss_weight: 1.0
+  ritc_loss_weight: 1.0
+  masking_mode: ""
+  mlm:
+    use_custom: True    #True = maskng only nouns+adj
+    mask_prob: 0.25
+    max_masks: 10
+    skipgram_prb: 0.2
+    skipgram_size: 3
+    mask_whole_word: True
+  mim:
+    mask_prob: 0.5
+    hog:
+      #HOG loss
+      bins: 9
+      pool: 16 #shoul be equal patch_size
+      norm_pix_loss: True
+      gaussian_window: 0
+  kntriplet:
+    topk : 4
+    i2im : 0
+    t2tm : 0
+    i2tm : 0
+    t2im : 0
+    weights: [0.5, 0.5] #internal-external alignment
+  citc:
+    lambda1: 0.5
+    lambda2: 0.5
+
+  grayscalebranch:
+    enable: True
+
+distributed : False
+distribution_cfg:
+  local_rank: 0
+
+
+
+
+
+
