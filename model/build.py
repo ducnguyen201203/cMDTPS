@@ -163,7 +163,7 @@ class CORE_MODEL(nn.Module):
 
 
     ##functions for MIM
-    def mim_per_sample_block_masking(self, x, mask_ratio, block_size=16):
+    def mim_per_sample_block_masking(self, x, mask_ratio, block_size=16, hard_patch_mask=None):
         batch, channel, height, width = x.shape
         # input_size = self.img_size        
         # assert height == width, f"Input height and width doesn't match ({height} != {width})."
@@ -386,16 +386,32 @@ class CORE_MODEL(nn.Module):
             with torch.no_grad():
                 if self.args.ema.enhance_mmm.enable:
                     pixel_mask, patch_mask   = self.mim_per_sample_block_masking(mim_images, mask_ratio=mim_prob, block_size=self.args.losses.mim.hog.pool) 
-                    print(patch_mask[0], patch_mask.shape)
+                    
                     B, C, H, W = mim_images.shape
                     ema_x = mim_images * (1-pixel_mask) + (pixel_mask) * self.mask_token.repeat(B, 1, H, W)   #mask with random values
                     ema_target      = self.hogl(mim_images)   #target = Bx(C*nbin)x(H/pool)x(W/pool)
                     ema_patch_mask  = patch_mask.permute(0, 2, 3, 1)
-                    ema_mim_feats = self.encode_image_ema(ema_x)
+                    ema_mim_feats = self.ema_base_model.encode_image(ema_x)
                     ema_mim_feats = self.cross_former(ema_mim_feats, text_feats, text_feats)  #BxPatchsxD
                     ema_pred = self.mim_head(ema_mim_feats)[:,1:,:]   #BxPatchsxD
-                    mim_loss = objectives.compute_mim(ema_pred, ema_target, ema_patch_mask, reduce_mean=False)
-                    print(mim_loss, mim_loss.shape)
+
+                    patch_mask  = patch_mask.squeeze(1).flatten(1)
+                    ema_target = ema_target.permute(0, 2, 3, 1).flatten(1, 2) #BxPxPx(Cxbins)
+                    ema_mim_loss = torch.mean((ema_pred - ema_target) ** 2, axis=2, keepdim=True).squeeze(2) * patch_mask 
+                    print(ema_mim_loss.shape)
+                    idx_tensor = torch.argsort(ema_mim_loss, dim=1, descending=True) #find the patchs having high loss
+                    P = patch_mask.shape[-1]
+                    print(P)
+                    print(idx_tensor[0])
+                    num_masked_paths = min(int(P * mlm_prob + 0.5), P)
+                    num_hard_masked_paths = min(int(num_masked_paths * self.args.ema.enhance_mmm.ratio +0.5), num_masked_paths)
+                    #Unlike in MLM, the actual number of paths in images is equal --> we can easily choose hardpatches and random patches
+                    idx_tensor[:, num_hard_masked_paths:] = idx_tensor[:, num_hard_masked_paths:][:, torch.randperm(P-num_hard_masked_paths)]
+                    print(idx_tensor[0])
+                    hard_patch_mask = torch.zeros_like(idx_tensor, device=patch_mask.device)
+                    hard_patch_mask.scatter_(dim=1,index=idx_tensor[:, :num_masked_paths], src=idx_tensor * 0 + 1)
+                    print(hard_patch_mask[0])
+                    
                     raise "haha"
                 else:
                     pixel_mask, patch_mask   = self.mim_per_sample_block_masking(mim_images, mask_ratio=mim_prob, block_size=self.args.losses.mim.hog.pool) 
